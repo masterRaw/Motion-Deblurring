@@ -1,2 +1,118 @@
-[InternetShortcut]
-URL=http://localhost:8890/notebooks/final.ipynb
+# The following libraries are the basic and have thier significant purposes and hence it cannot be neglected.
+import numpy as np
+from numpy import fft
+import cv2
+import matplotlib.pyplot as chart
+import math
+
+# This the function for appyling the blur process.
+# We have used 2-D inverse Fast Fourier Transform and it will return 2-D discrete inverse fourier transform matrix. Since we
+# are using a 2-D image , we have used "fft.fft2".
+
+def make_blurred(input_image, psf, eps):
+    input_fft = fft.fft2(input_image)
+    psf_fft = fft.fft2(psf) + eps
+    blurred = fft.ifft2(input_fft * psf_fft)
+    blurred = np.abs(fft.fftshift(blurred))
+    return blurred
+
+# This is the motion deblurring function.
+# Image size is the dimesnions of the image while motion_angle is theangle by which the motion blurring is happening.
+# centre postion of the image is used for applying the blurring function w.r.t the angle of motion and a psf is generated.
+
+def motion_process(image_size, motion_angle):
+    psf = np.zeros(image_size)
+    print(image_size)
+    center_position = (image_size[0] - 1) / 2
+    print(center_position)
+
+    slope_tan = math.tan(motion_angle * math.pi / 180)
+    slope_cot = 1 / slope_tan
+    if slope_tan <= 1:
+        for i in range(15):
+            offset = round(i * slope_tan) 
+            psf[int(center_position + offset), int(center_position - offset)] = 1
+        return psf / psf.sum() 
+    else:
+        for i in range(15):
+            offset = round(i * slope_cot)
+            psf[int(center_position - offset), int(center_position + offset)] = 1
+            
+        return psf / psf.sum() 
+
+# This is the Inverse Filter. 
+
+def inverse_filter(input_image, psf, eps):
+    input_fft = fft.fft2(input_image)
+    psf_fft = fft.fft2(psf) + eps  
+    result = fft.ifft2(input_fft / psf_fft)
+    result = np.abs(fft.fftshift(result))
+    return result
+
+# This is the Weiner Filter.
+
+def wiener_filter(input_image, psf, eps, K=0.01): 
+    input_fft = fft.fft2(input_image)
+    psf_fft = fft.fft2(psf) + eps
+    psf_fft_1 = np.conj(psf_fft) / (np.abs(psf_fft) ** 2 + K)   # This is the weiner formula for deconvulation.
+    result = fft.ifft2(input_fft * psf_fft_1)
+    result = np.abs(fft.fftshift(result))
+    return result
+
+
+image = cv2.imread('img.jpg')                              # The image used for processing is feeded here.
+original =cv2.imread('img.jpg')                            # A seperate copy of image is kept here.
+image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)            # Changing the colorpace to Grayscale.        
+img_h = image.shape[0]
+img_w = image.shape[1]
+chart.figure(1)
+chart.xlabel("Original Input Image")
+#chart.axis('off')
+chart.imshow(original)                                     # Displaying the Original Input Image
+
+chart.figure(2,figsize=(20,20))
+chart.gray()
+# Actual Parameters to be used are passed here. 
+
+psf = motion_process((img_h, img_w), 60)
+blurred = np.abs(make_blurred(image, psf, 1e-3))
+
+chart.subplot(231)
+chart.xlabel("Blurred Image using psf of Original Image")
+#chart.axis('off')
+chart.imshow(blurred)
+
+result = inverse_filter(blurred, psf, 1e-3)  
+chart.subplot(232)
+chart.xlabel("Inverse Deblurring of Blurred Image")
+#chart.axis('off')
+chart.imshow(result)
+
+result = wiener_filter(blurred, PSF, 1e-3)  
+chart.subplot(233)
+chart.xlabel("wiener deblurring(k=0.01) of Blurred Image")
+#chart.axis('off')
+chart.imshow(result)
+
+# This is adding the random noise to the image making it both motion and noisy blurred.
+
+blurred_noisy = blurred + 0.01 * blurred.std() * np.random.standard_normal(blurred.shape)     
+
+chart.subplot(234)
+chart.xlabel("motion & noisy blurred Image")
+#chart.axis('off')
+chart.imshow(blurred_noisy)  
+
+result = inverse_filter(blurred_noisy, psf, 0.1 + 1e-3)  
+chart.subplot(235)
+chart.xlabel("inverse deblurred NMBI")
+#chart.axis('off')
+chart.imshow(result)
+
+result = wiener_filter(blurred_noisy, psf, 0.01 + 1e-3) 
+chart.subplot(236)
+chart.xlabel("wiener deblurred(k=0.01) of NMBI")
+#chart.axis('off')
+chart.imshow(result)
+
+chart.show()                                        # Displaying the final charts of all the iamges(original & filter-applied)
